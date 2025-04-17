@@ -290,26 +290,250 @@ def process_city(city_id, travel_graph, wikidata_endpoint):
     
     return travel_graph
 
+from rdflib import Graph, URIRef
+from rdflib.namespace import RDF, RDFS
+from rdflib.plugins.sparql import prepareQuery
+
+class TravelGuideQuery:
+    def __init__(self, ontology_file="travel_guide_ontology.owl"):
+        """
+        Initialize the query engine with the ontology file.
+        
+        Args:
+            ontology_file (str): Path to the OWL ontology file
+        """
+        self.graph = Graph()
+        self.graph.parse(ontology_file, format="xml")
+        self.TRAVEL = URIRef("http://example.org/travel/")
+        
+    def _prepare_travel_uri(self, name):
+        """Helper method to create URIs in the travel namespace"""
+        return URIRef(self.TRAVEL + name.replace(" ", "_"))
+    
+    def get_all_cities(self):
+        """
+        Get all cities in the ontology.
+        
+        Returns:
+            list: List of dictionaries with city info
+        """
+        query = """
+        SELECT ?city ?name
+        WHERE {
+            ?city a travel:City .
+            ?city rdfs:label ?name .
+        }
+        """
+        q = prepareQuery(query, initNs={"travel": self.TRAVEL, "rdfs": RDFS})
+        
+        results = []
+        for row in self.graph.query(q):
+            results.append({
+                "uri": str(row.city),
+                "name": str(row.name)
+            })
+        return results
+    
+    def get_city_details(self, city_name):
+        """
+        Get detailed information about a specific city.
+        
+        Args:
+            city_name (str): Name of the city to query
+            
+        Returns:
+            dict: City details including country, capital, continent
+        """
+        city_uri = self._prepare_travel_uri(city_name)
+        
+        query = """
+        SELECT ?name ?country ?countryName ?capital ?capitalName ?continent ?continentName
+        WHERE {
+            BIND(?city_uri AS ?city)
+            ?city a travel:City ;
+                  rdfs:label ?name .
+            OPTIONAL {
+                ?city travel:locatedIn ?country .
+                ?country rdfs:label ?countryName .
+                
+                OPTIONAL {
+                    ?country travel:hasCapital ?capital .
+                    ?capital rdfs:label ?capitalName .
+                }
+                
+                OPTIONAL {
+                    ?country travel:locatedInContinent ?continent .
+                    ?continent rdfs:label ?continentName .
+                }
+            }
+        }
+        """
+        q = prepareQuery(query, initNs={"travel": self.TRAVEL, "rdfs": RDFS})
+        
+        result = {}
+        for row in self.graph.query(q, initBindings={'city_uri': city_uri}):
+            result = {
+                "name": str(row.name),
+                "country": {
+                    "uri": str(row.country),
+                    "name": str(row.countryName)
+                } if row.country else None,
+                "capital": {
+                    "uri": str(row.capital),
+                    "name": str(row.capitalName)
+                } if row.capital else None,
+                "continent": {
+                    "uri": str(row.continent),
+                    "name": str(row.continentName)
+                } if row.continent else None
+            }
+        return result
+    
+    def get_pois_for_city(self, city_name):
+        """
+        Get all points of interest for a city.
+        
+        Args:
+            city_name (str): Name of the city
+            
+        Returns:
+            list: List of POI dictionaries with name, description, and category
+        """
+        city_uri = self._prepare_travel_uri(city_name)
+        
+        query = """
+        SELECT ?poi ?name ?description ?category
+        WHERE {
+            BIND(?city_uri AS ?city)
+            ?city travel:hasPlaceOfInterest ?poi .
+            ?poi rdfs:label ?name .
+            OPTIONAL { ?poi rdfs:comment ?description }
+            OPTIONAL { ?poi travel:category ?category }
+        }
+        """
+        q = prepareQuery(query, initNs={"travel": self.TRAVEL, "rdfs": RDFS})
+        
+        results = []
+        for row in self.graph.query(q, initBindings={'city_uri': city_uri}):
+            results.append({
+                "uri": str(row.poi),
+                "name": str(row.name),
+                "description": str(row.description) if row.description else None,
+                "category": str(row.category) if row.category else None
+            })
+        return results
+    
+    def get_cities_in_country(self, country_name):
+        """
+        Get all cities located in a specific country.
+        
+        Args:
+            country_name (str): Name of the country
+            
+        Returns:
+            list: List of city names
+        """
+        country_uri = self._prepare_travel_uri(country_name)
+        
+        query = """
+        SELECT ?city ?name
+        WHERE {
+            BIND(?country_uri AS ?country)
+            ?city travel:locatedIn ?country .
+            ?city rdfs:label ?name .
+        }
+        """
+        q = prepareQuery(query, initNs={"travel": self.TRAVEL, "rdfs": RDFS})
+        
+        return [str(row.name) for row in self.graph.query(q, initBindings={'country_uri': country_uri})]
+    
+
+    def search_pois_by_category(self, category_keyword):
+        """
+        Search points of interest by category keyword.
+        
+        Args:
+            category_keyword (str): Keyword to search in POI categories
+            
+        Returns:
+            list: List of POIs matching the category
+        """
+        query = """
+        # SELECT ?poi ?name ?description ?category ?city ?cityName
+        SELECT ?name
+        WHERE {
+            ?poi a travel:PlaceOfInterest ;
+                rdfs:label ?name ;
+                travel:locatedIn ?city .
+            ?city rdfs:label ?cityName .
+            OPTIONAL { ?poi rdfs:comment ?description }
+            OPTIONAL { ?poi travel:category ?category }
+            FILTER(CONTAINS(LCASE(COALESCE(?category, "")), ?keyword))
+        }
+        """
+        try:
+            q = prepareQuery(query, initNs={"travel": self.TRAVEL, "rdfs": RDFS})
+            results = []
+            for row in self.graph.query(q, initBindings={'keyword': Literal(category_keyword.lower())}):
+                results.append({
+                    # "poi": str(row.poi),
+                    "name": str(row.name),
+                    # "description": str(row.description) if row.description else None,
+                    # "category": str(row.category) if row.category else None,
+                    # "city": str(row.cityName)
+                })
+            return results
+        except Exception as e:
+            print(f"Error executing query: {e}")
+            return []
+
+
 if __name__ == "__main__":
-    wikidata_endpoint = "https://query.wikidata.org/sparql"
-    ontology_file = "travel_guide_ontology.ttl"
+    # wikidata_endpoint = "https://query.wikidata.org/sparql"
+    # ontology_file = "travel_guide_ontology.ttl"
     
-    # List of city Wikidata IDs to process
-    city_ids = [
-        "wd:Q1355",  # Bengaluru
-        "wd:Q60",    # New York City
-        "wd:Q84",    # London
-        "wd:Q90",    # Paris
-        "wd:Q1490"    # Tokyo
-    ]
+    # # List of city Wikidata IDs to process
+    # city_ids = [
+    #     "wd:Q1355",  # Bengaluru
+    #     "wd:Q60",    # New York City
+    #     "wd:Q84",    # London
+    #     "wd:Q90",    # Paris
+    #     "wd:Q1490"    # Tokyo
+    # ]
     
-    # Load existing graph or create new one
-    travel_graph = load_existing_graph(ontology_file)
+    # # Load existing graph or create new one
+    # travel_graph = load_existing_graph(ontology_file)
     
-    # Process each city
-    for city_id in city_ids:
-        travel_graph = process_city(city_id, travel_graph, wikidata_endpoint)
+    # # Process each city
+    # for city_id in city_ids:
+    #     travel_graph = process_city(city_id, travel_graph, wikidata_endpoint)
     
-    # Save the updated graph
-    travel_graph.serialize(ontology_file, format="turtle")
-    print(f"Knowledge graph data saved to {ontology_file}")
+    # # Save the updated graph
+    # travel_graph.serialize(ontology_file, format="turtle")
+    # print(f"Knowledge graph data saved to {ontology_file}")
+
+    # Initialize the query engine
+    query_engine = TravelGuideQuery("travel_guide_ontology.owl")
+
+    # # Get all cities
+    # all_cities = query_engine.get_all_cities()
+    # print("All cities:", all_cities)
+
+    # # Get details for a specific city
+    # city_details = query_engine.get_city_details("Bengaluru")
+    # print("\nBengaluru details:", city_details)
+
+    # # Get points of interest for a city
+    # pois = query_engine.get_pois_for_city("Bengaluru")
+    # print("\nPoints of interest in Bengaluru:", pois)
+
+    # # Get cities in a country
+    # cities_in_country = query_engine.get_cities_in_country("India")
+    # print("\nCities in India:", cities_in_country)
+
+    # Search POIs by category
+    museum_pois = query_engine.search_pois_by_category("museum")
+    print("\nMuseum POIs:", museum_pois)
+
+    temples_pois = query_engine.search_pois_by_category("park")
+    print("\nTemple POIs:", temples_pois)
