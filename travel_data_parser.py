@@ -140,15 +140,99 @@ def create_ontology():
 
     return graph
 
-if __name__ == "__main__":
-    wikidata_endpoint = "https://query.wikidata.org/sparql"
-    city_id = "wd:Q1757"  # Example: Bengaluru's Wikidata ID
+# if __name__ == "__main__":
+#     wikidata_endpoint = "https://query.wikidata.org/sparql"
+#     city_id = "wd:Q90"  # Example: Bengaluru's Wikidata ID
 
-    # Create the initial ontology graph
-    travel_graph = create_ontology()
+#     # Create the initial ontology graph
+#     travel_graph = create_ontology()
 
+#     # --- Execute and parse Query 1 ---
+#     print("Executing city information query...")
+#     query1 = f"""
+#     SELECT ?cityName ?countryName ?capitalName ?continentName
+#     WHERE {{
+#       BIND({city_id} AS ?city)
+#       ?city rdfs:label ?cityName .
+#       ?city wdt:P17 ?country .
+#       ?country rdfs:label ?countryName .
+#       OPTIONAL {{ ?country wdt:P36 ?capital .
+#                  ?capital rdfs:label ?capitalName .
+#                  FILTER (LANG(?capitalName) = "en") }}
+#       ?country wdt:P30 ?continent .
+#       ?continent rdfs:label ?continentName .
+#       FILTER (LANG(?cityName) = "en")
+#       FILTER (LANG(?countryName) = "en")
+#       FILTER (LANG(?continentName) = "en")
+#     }}
+#     LIMIT 1
+#     """
+#     results1 = execute_sparql_query(wikidata_endpoint, query1)
+#     if not results1:
+#         print("Failed to execute city information query")
+#         exit(1)
+    
+#     travel_graph = parse_city_info(results1, travel_graph)
+
+#     # --- Execute and parse Query 2 ---
+#     print("Executing points of interest query...")
+#     query2 = f"""
+#     SELECT DISTINCT ?cityName ?poiName ?poiDescription ?instanceOfLabel
+#     WHERE {{
+#       BIND({city_id} AS ?city)
+#       ?city rdfs:label ?cityName .
+#       ?poi wdt:P131* ?city .  # Located in or part of
+#       ?poi wdt:P31 ?instanceOf .
+#       ?instanceOf rdfs:label ?instanceOfLabel .
+#       FILTER (LANG(?instanceOfLabel) = "en" &&
+#               (CONTAINS(LCASE(?instanceOfLabel), "landmark") ||
+#                CONTAINS(LCASE(?instanceOfLabel), "museum") ||
+#                CONTAINS(LCASE(?instanceOfLabel), "palace") ||
+#                CONTAINS(LCASE(?instanceOfLabel), "temple") ||
+#                CONTAINS(LCASE(?instanceOfLabel), "histor") ||
+#                CONTAINS(LCASE(?instanceOfLabel), "memorial") ||
+#                CONTAINS(LCASE(?instanceOfLabel), "park") ||
+#                CONTAINS(LCASE(?instanceOfLabel), "garden") ||
+#                CONTAINS(LCASE(?instanceOfLabel), "monument")))
+#       ?poi rdfs:label ?poiName .
+#       OPTIONAL {{ ?poi schema:description ?poiDescription . FILTER (LANG(?poiDescription) = "en") }}
+#       FILTER (LANG(?cityName) = "en")
+#       FILTER (LANG(?poiName) = "en")
+#     }}
+#     """
+#     results2 = execute_sparql_query(wikidata_endpoint, query2)
+#     if not results2:
+#         print("Failed to execute points of interest query")
+#         exit(1)
+    
+#     travel_graph = parse_poi_info(results2, travel_graph)
+
+#     # Serialize the graph
+#     ontology_file = "travel_guide_ontology.owl"
+#     travel_graph.serialize(ontology_file, format="xml")
+#     print(f"Knowledge graph data saved to {ontology_file}")
+
+    
+
+import os
+from rdflib.util import guess_format
+
+# ... [keep all your existing functions] ...
+
+def load_existing_graph(filepath):
+    """Loads an existing RDF graph from file if it exists, otherwise creates a new one."""
+    graph = Graph()
+    if os.path.exists(filepath):
+        file_format = guess_format(filepath)
+        graph.parse(filepath, format=file_format)
+    else:
+        graph = create_ontology()
+    return graph
+
+def process_city(city_id, travel_graph, wikidata_endpoint):
+    """Processes a single city and adds its data to the graph."""
     # --- Execute and parse Query 1 ---
-    print("Executing city information query...")
+    print(f"Processing city {city_id}...")
     query1 = f"""
     SELECT ?cityName ?countryName ?capitalName ?continentName
     WHERE {{
@@ -169,19 +253,18 @@ if __name__ == "__main__":
     """
     results1 = execute_sparql_query(wikidata_endpoint, query1)
     if not results1:
-        print("Failed to execute city information query")
-        exit(1)
+        print(f"Failed to execute city information query for {city_id}")
+        return travel_graph
     
     travel_graph = parse_city_info(results1, travel_graph)
 
     # --- Execute and parse Query 2 ---
-    print("Executing points of interest query...")
     query2 = f"""
     SELECT DISTINCT ?cityName ?poiName ?poiDescription ?instanceOfLabel
     WHERE {{
       BIND({city_id} AS ?city)
       ?city rdfs:label ?cityName .
-      ?poi wdt:P131* ?city .  # Located in or part of
+      ?poi wdt:P131* ?city .
       ?poi wdt:P31 ?instanceOf .
       ?instanceOf rdfs:label ?instanceOfLabel .
       FILTER (LANG(?instanceOfLabel) = "en" &&
@@ -202,13 +285,31 @@ if __name__ == "__main__":
     LIMIT 50
     """
     results2 = execute_sparql_query(wikidata_endpoint, query2)
-    if not results2:
-        print("Failed to execute points of interest query")
-        exit(1)
+    if results2:
+        travel_graph = parse_poi_info(results2, travel_graph)
     
-    travel_graph = parse_poi_info(results2, travel_graph)
+    return travel_graph
 
-    # Serialize the graph
-    ontology_file = "travel_guide_ontology.owl"
-    travel_graph.serialize(ontology_file, format="xml")
+if __name__ == "__main__":
+    wikidata_endpoint = "https://query.wikidata.org/sparql"
+    ontology_file = "travel_guide_ontology.ttl"
+    
+    # List of city Wikidata IDs to process
+    city_ids = [
+        "wd:Q1355",  # Bengaluru
+        "wd:Q60",    # New York City
+        "wd:Q84",    # London
+        "wd:Q90",    # Paris
+        "wd:Q1490"    # Tokyo
+    ]
+    
+    # Load existing graph or create new one
+    travel_graph = load_existing_graph(ontology_file)
+    
+    # Process each city
+    for city_id in city_ids:
+        travel_graph = process_city(city_id, travel_graph, wikidata_endpoint)
+    
+    # Save the updated graph
+    travel_graph.serialize(ontology_file, format="turtle")
     print(f"Knowledge graph data saved to {ontology_file}")
