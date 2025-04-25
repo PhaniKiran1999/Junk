@@ -1,0 +1,34 @@
+SubGraph Importance:
+
+    Query Parsing
+        Iterate through the logged queries over a defined time window (e.g., last month, last quarter).
+    Query Attribution
+        increment counters for every specific instance and property type that appears in the query.
+    Aggregation & Normalization
+        Sum the counts for each subgraph (or specific node/property if using Method C) over the chosen time period.
+        Raw Counts: SubgraphImportance(C) = Total queries attributed to Subgraph C.
+        - Raw counts aren't easily comparable. Normalize them:
+        Normalization: Percentage: NormImportance(C) = Count(C) / Total Queries Associated with its Parent/Domain Class Logged.
+
+Property Instantiation Ratio:
+    PIR_1 = Number of triples using Property P / Total number of triples
+    - High PIR_1 property represents a common, defining, or frequently captured relationship.
+    PIR_2 = Number of triples using Property P / Number of instances in domain(P)
+    For Instance Nodes, we can assess an instance'c completeness based on the PIR_1 of properties expected for its class. 
+    PIR_2 talks about importance of instance nodes
+
+Class Instantiation Ratio:
+    CIR = Number of instances of Class C / Total number of instances in KG
+
+ImportanceScore(Imp) = w1 * Norm(CIR) + w2 * Norm(PIR) + w3 * Norm(Timeliness) + w4 * Norm(SubgraphImportance)
+
+
+The Core Idea of the Original I-Score: It measures the total uncertainty or potential information gain residing in the unknown parts of the KG. Higher uncertainty (more unknown items, or more "surprising" unknown items if probabilities aren't uniform) leads to a higher I-Score.
+
+Our goal is to make cn and ce dynamic and specific to each unknown node and edge, reflecting their calculated importance based on CIR, PIR, Timeliness, and Subgraph Importance. The intuition is: discovering an important unknown node/edge contributes more to the meaningful "knowledge" or reduction of critical uncertainty than discovering an unimportant one.
+
+Instead of fixed cn and ce, we introduce item-specific importance scores:
+Imp(i_node): The calculated importance score for the i-th potential unknown node.
+Imp(j_edge): The calculated importance score for the j-th potential unknown edge.
+
+I_Score_adapted = Σ [ Imp(i_node) * pi * log(1/pi) ]_i∈Sn + Σ [ Imp(j_edge) * qj * log(1/qj) ]_j∈Se
