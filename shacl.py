@@ -17,6 +17,12 @@ ex:johnDoe a foaf:Person ;
     foaf:lastName "Doe" ;
     ex:age 30 .
 
+# Conforming data: John Snow
+ex:johnSnow a foaf:Person ;
+    foaf:firstName "John" ;
+    foaf:lastName "Snow" ;
+    ex:age 16 .
+
 # Conforming data: Jane Smith
 ex:janeSmith a foaf:Person ;
     foaf:firstName "Jane" ;
@@ -61,6 +67,21 @@ ex:PersonNameConstraint
                       foaf:firstName ?firstName ;
                       foaf:lastName ?lastName .
                 FILTER (STR(?firstName) = STR(?lastName))
+            }
+        \"\"\" ;
+    ] .
+
+ex:PersonAgeConstraint
+    a sh:NodeShape ;
+    sh:targetClass foaf:Person ;
+    sh:message "Person's age must be greater than 18." ;
+    sh:sparql [
+        sh:select \"\"\"
+            SELECT ?this ?value
+            WHERE {
+                ?this a foaf:Person ;
+                      ex:age ?value .
+                FILTER (?value <= 18)
             }
         \"\"\" ;
     ] .
